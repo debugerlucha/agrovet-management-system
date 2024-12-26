@@ -67,6 +67,15 @@ struct CreateAgrovetPayload {
 }
 
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
+struct UpdateAgrovetPayload {
+    id: u64,
+    name: Option<String>,
+    location: Option<String>,
+    contact: Option<String>,
+    email: Option<String>,
+}
+
+#[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
 struct CreateProductPayload {
     agrovet_id: u64,
     name: String,
@@ -194,7 +203,6 @@ thread_local! {
         ));
 }
 
-// Functions
 
 // Create Agrovet
 #[ic_cdk::update]
@@ -432,5 +440,74 @@ fn get_feedback_by_agrovet_id(agrovet_id: u64) -> Result<Vec<Feedback>, Message>
     })
 }
 
-// Exporting the candid interface
+// Validate and check empty fields
+fn validate_required_fields(fields: Vec<&str>) -> Result<(), Message> {
+    for field in fields {
+        if field.is_empty() {
+            return Err(Message::InvalidPayload("One or more required fields are empty".to_string()));
+        }
+    }
+    Ok(())
+}
+
+#[ic_cdk::update]
+fn update_agrovet(payload: UpdateAgrovetPayload) -> Result<Agrovet, Message> {
+    AGROVETS.with(|agrovets| {
+        let mut agrovets_map = agrovets.borrow_mut();
+        if let Some(mut agrovet) = agrovets_map.get(&payload.id) {
+            // Update fields if provided in the payload
+            if let Some(name) = payload.name {
+                if !name.is_empty() {
+                    agrovet.name = name;
+                }
+            }
+            if let Some(location) = payload.location {
+                agrovet.location = location;
+            }
+            if let Some(contact) = payload.contact {
+                agrovet.contact = contact;
+            }
+            if let Some(email) = payload.email {
+                agrovet.email = email;
+            }
+
+            // Reinsert the updated agrovet back into the map
+            agrovets_map.insert(payload.id, agrovet.clone());
+            Ok(agrovet)
+        } else {
+            Err(Message::NotFound("Agrovet not found".to_string()))
+        }
+    })
+}
+
+#[ic_cdk::query]
+fn get_stock_summary() -> Result<Vec<(String, u64, bool)>, Message> {
+    PRODUCTS.with(|products| {
+        let stock_summary: Vec<(String, u64, bool)> = products
+            .borrow()
+            .iter()
+            .map(|(_, product)| (product.name.clone(), product.stock, product.is_available))
+            .collect();
+
+        if stock_summary.is_empty() {
+            Err(Message::NotFound("No products found".to_string()))
+        } else {
+            Ok(stock_summary)
+        }
+    })
+}
+
+fn increment_id_counter() -> u64 {
+    ID_COUNTER
+        .with(|counter| {
+            let current_value = *counter.borrow().get();
+            counter.borrow_mut().set(current_value + 1).unwrap();
+            current_value + 1
+        })
+}
+
+fn is_valid_email(email: &str) -> bool {
+    email.contains('@') && email.contains('.')
+}
+
 ic_cdk::export_candid!();
